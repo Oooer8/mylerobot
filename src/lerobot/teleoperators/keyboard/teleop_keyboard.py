@@ -198,6 +198,8 @@ class KeyboardEndEffectorTeleop(KeyboardTeleop):
         delta_z = 0.0
         gripper_action = 1.0
 
+        for key, val in self.current_pressed.items():
+            print(f"{key=} {val=}")
         # Generate action based on current key states
         for key, val in self.current_pressed.items():
             if key == keyboard.Key.up:
@@ -223,7 +225,9 @@ class KeyboardEndEffectorTeleop(KeyboardTeleop):
                 # this is useful for retrieving other events like interventions for RL, episode success, etc.
                 self.misc_keys_queue.put(key)
 
-        self.current_pressed.clear()
+        # ✅ 只清除已释放的键（val == False），保留按下的键
+        self.current_pressed = {k: v for k, v in self.current_pressed.items() if v}
+
 
         action_dict = {
             "delta_x": delta_x,
