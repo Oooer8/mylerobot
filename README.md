@@ -4,10 +4,12 @@
   <br/>
 </p>
 
+![ALOHA ACT 演示](media/act_aloha.gif)
 
 - first, create same virtual environment by `environment.yml`
 ```bash
 conda env create -f environment.yml
+conda activate lerobot
 ```
 
 - then, install `lerobot` by `pip`
