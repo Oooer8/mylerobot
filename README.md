@@ -4,8 +4,6 @@
   <br/>
 </p>
 
-<div align="center">
-
 
 - first, create same virtual environment by `environment.yml`
 ```bash
@@ -22,4 +20,5 @@ pip install -e ".[all]"
 
 - run `test/sim/6_xarm_sys/6_train_xarm.py` to train policy
 
-- run `test/sim/6_xarm_sys/6_eval_xarm.py` to eval policy
+- run `test/sim/6_xarm_sys/6_eval_xarm.py` to eval
+ policy
