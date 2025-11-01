@@ -47,9 +47,6 @@ class Base(gym.Env):
         if gripper_rotation is None:
             gripper_rotation = [0, 1, 0, 0]
         self.gripper_rotation = np.array(gripper_rotation, dtype=np.float32)
-        self.center_of_table = np.array([1.655, 0.3, 0.63625])
-        self.max_z = 1.2
-        self.min_z = 0.2
 
         # Observations
         self.obs_type = obs_type
@@ -70,6 +67,14 @@ class Base(gym.Env):
         self._initialize_simulation()
         self.observation_renderer = self._initialize_renderer(renderer_type="observation")
         self.visualization_renderer = self._initialize_renderer(renderer_type="visualization")
+        
+        # Get camera names for observation space setup
+        self.camera_names = []
+        for i in range(self.model.ncam):
+            camera_name = self.model.camera(i).name
+            if camera_name.startswith("camera"):
+                self.camera_names.append(camera_name)
+        
         self.observation_space = self._initialize_observation_space()
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.metadata["action_space"]),))
         self.action_padding = np.zeros(4 - len(self.metadata["action_space"]), dtype=np.float32)
@@ -104,25 +109,40 @@ class Base(gym.Env):
             self.data.set_joint_qpos(name, value)
         mocap.reset(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
+
+        self.center_of_table_surf = np.copy(
+            self._utils.get_site_xpos(self.model, self.data, "centeroftable"))
+        table_half_size = self.model.geom_size[self.model.geom("tablegeom0").id]
+        self.center_of_table_surf[2] += table_half_size[2]
         self._sample_goal()
         mujoco.mj_forward(self.model, self.data)
 
     def _initialize_observation_space(self):
         image_shape = (self.observation_height, self.observation_width, 3)
-        obs = self.get_obs()
+        
         if self.obs_type == "state":
+            # 获取一次观测来确定形状
+            obs = self._get_obs()
             observation_space = gym.spaces.Box(-1000.0, 1000.0, shape=obs.shape, dtype=np.float64)
         elif self.obs_type == "pixels":
-            observation_space = gym.spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
+            # 为每个相机视角创建一个Box空间
+            spaces = {}
+            for camera_name in self.camera_names:
+                spaces[camera_name] = gym.spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
+            observation_space = gym.spaces.Dict(spaces)
         elif self.obs_type == "pixels_agent_pos":
-            observation_space = gym.spaces.Dict(
-                {
-                    "pixels": gym.spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8),
-                    "agent_pos": gym.spaces.Box(
-                        low=-1000.0, high=1000.0, shape=obs["agent_pos"].shape, dtype=np.float64
-                    ),
-                }
-            )
+            # 为每个相机视角创建一个Box空间
+            pixel_spaces = {}
+            for camera_name in self.camera_names:
+                pixel_spaces[camera_name] = gym.spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
+            
+            # 获取agent_pos的形状
+            agent_pos = self.robot_state
+            
+            observation_space = gym.spaces.Dict({
+                "pixels": gym.spaces.Dict(pixel_spaces),
+                "agent_pos": gym.spaces.Box(low=-1000.0, high=1000.0, shape=agent_pos.shape, dtype=np.float64)
+            })
         else:
             raise ValueError(
                 f"Unknown obs_type {self.obs_type}. Must be one of [pixels, state, pixels_agent_pos]"
@@ -156,7 +176,7 @@ class Base(gym.Env):
 
     @property
     def eef(self):
-        return self._utils.get_site_xpos(self.model, self.data, "grasp") - self.center_of_table
+        return self._utils.get_site_xpos(self.model, self.data, "grasp") - self.center_of_table_surf
 
     @property
     def eef_velp(self):
@@ -168,11 +188,11 @@ class Base(gym.Env):
 
     @property
     def robot_state(self):
-        return np.concatenate([self.eef - self.center_of_table, self.gripper_angle])
+        return np.concatenate([self.eef - self.center_of_table_surf, self.gripper_angle])
 
     @property
     def obj(self):
-        return self._utils.get_site_xpos(self.model, self.data, "object_site") - self.center_of_table
+        return self._utils.get_site_xpos(self.model, self.data, "object_site") - self.center_of_table_surf
 
     @property
     def obj_rot(self):
@@ -245,7 +265,12 @@ class Base(gym.Env):
     def get_obs(self):
         if self.obs_type == "state":
             return self._get_obs()
-        pixels = self._render(renderer=self.observation_renderer)
+        
+        # 获取所有相机的图像
+        pixels = {}
+        for camera_name in self.camera_names:
+            pixels[camera_name] = self._render(renderer=self.observation_renderer, camera_name=camera_name)
+        
         if self.obs_type == "pixels":
             return pixels
         elif self.obs_type == "pixels_agent_pos":
@@ -277,17 +302,23 @@ class Base(gym.Env):
         self._mujoco.mj_forward(self.model, self.data)
 
     def _limit_gripper(self, gripper_pos, pos_ctrl):
-        if gripper_pos[0] > self.center_of_table[0] - 0.105 + 0.15:
+        rel_pos = gripper_pos - self.center_of_table_surf
+        
+        x_min, x_max = self.gripper_limit_to_cots['x_range']
+        y_min, y_max = self.gripper_limit_to_cots['y_range']
+        z_min, z_max = self.gripper_limit_to_cots['z_range']
+
+        if rel_pos[0] > x_max:
             pos_ctrl[0] = min(pos_ctrl[0], 0)
-        if gripper_pos[0] < self.center_of_table[0] - 0.105 - 0.3:
+        if rel_pos[0] < x_min:
             pos_ctrl[0] = max(pos_ctrl[0], 0)
-        if gripper_pos[1] > self.center_of_table[1] + 0.3:
+        if rel_pos[1] > y_max:
             pos_ctrl[1] = min(pos_ctrl[1], 0)
-        if gripper_pos[1] < self.center_of_table[1] - 0.3:
+        if rel_pos[1] < y_min:
             pos_ctrl[1] = max(pos_ctrl[1], 0)
-        if gripper_pos[2] > self.max_z:
+        if rel_pos[2] > z_max:
             pos_ctrl[2] = min(pos_ctrl[2], 0)
-        if gripper_pos[2] < self.min_z:
+        if rel_pos[2] < z_min:
             pos_ctrl[2] = max(pos_ctrl[2], 0)
         return pos_ctrl
 
@@ -298,7 +329,8 @@ class Base(gym.Env):
         pos_ctrl = self._limit_gripper(
             self._utils.get_site_xpos(self.model, self.data, "grasp"), pos_ctrl
         ) * (1 / self.n_substeps)
-        gripper_ctrl = np.array([gripper_ctrl, gripper_ctrl])
+        # gripper_ctrl = np.array([gripper_ctrl, gripper_ctrl])
+        gripper_ctrl = np.array([gripper_ctrl])
         mocap.apply_action(
             self.model,
             self._model_names,
@@ -309,16 +341,19 @@ class Base(gym.Env):
     def _set_gripper(self, gripper_pos, gripper_rotation):
         self._utils.set_mocap_pos(self.model, self.data, "robot0:mocap2", gripper_pos)
         self._utils.set_mocap_quat(self.model, self.data, "robot0:mocap2", gripper_rotation)
-        self._utils.set_joint_qpos(self.model, self.data, "right_outer_knuckle_joint", 0)
+        self._utils.set_joint_qpos(self.model, self.data, "drive_joint", 0)
         self.data.qpos[10] = 0.0
         self.data.qpos[12] = 0.0
 
     def render(self):
-        return self._render(renderer=self.visualization_renderer)
+        render_dict = {}
+        for camera_name in self.camera_names:
+            render_dict[camera_name] = self._render(renderer=self.visualization_renderer, camera_name=camera_name)
+        return render_dict
 
-    def _render(self, renderer: MujocoRenderer):
+    def _render(self, renderer: MujocoRenderer, camera_name):
         self._render_callback()
-        render = renderer.render(self.render_mode, camera_name="camera0")
+        render = renderer.render(self.render_mode, camera_name=camera_name)
         return render.copy() if render is not None else None
 
     def _render_callback(self):

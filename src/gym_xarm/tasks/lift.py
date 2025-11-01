@@ -20,12 +20,12 @@ class Lift(Base):
         return self._init_z + self._z_threshold
 
     def is_success(self):
-        return (self.obj[2]+self.center_of_table[2]) >= self.z_target
+        return (self.obj[2]+self.center_of_table_surf[2]) >= self.z_target
 
     def get_reward(self):
         reach_dist = np.linalg.norm(self.obj - self.eef)
         reach_dist_xy = np.linalg.norm(self.obj[:-1] - self.eef[:-1])
-        pick_completed = (self.obj[2]+self.center_of_table[2]) >= (self.z_target-0.01)
+        pick_completed = (self.obj[2]+self.center_of_table_surf[2]) >= (self.z_target-0.01)
         obj_dropped = (self.obj[2] < (self._init_z + 0.005)) and (reach_dist > 0.02)
 
         # Reach
@@ -82,7 +82,7 @@ class Lift(Base):
         super()._set_gripper(gripper_pos, self.gripper_rotation)
 
         # Object
-        object_pos = self.center_of_table - np.array([0.15, 0.10, 0.07])
+        object_pos = self.center_of_table_surf - np.array([0.15, 0.10, 0.07])
         object_pos[0] += self.np_random.uniform(-0.15, 0.15)
         object_pos[1] += self.np_random.uniform(-0.15, 0.15)
         object_qpos = self._utils.get_joint_qpos(self.model, self.data, "object_joint0")

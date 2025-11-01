@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<mujoco>
+	<compiler angle="radian" coordinate="local" meshdir="mesh" texturedir="texture"></compiler>
+	<size nconmax="2000" njmax="500"/>
+
+	<option timestep="0.002" cone="elliptic" impratio="10" iterations="50" tolerance="1e-8">
+		<flag warmstart="enable"></flag>
+	</option>
+
+	<include file="shared.xml"></include>
+
+	<worldbody>
+		<body name="floor0" pos="0 0 0">
+			<geom name="floorgeom0" pos="0 0 0" size="0 0 1" type="plane" condim="3" material="floor_mat"></geom>
+		</body>
+
+		<include file="xarm.xml"></include>
+
+		<body pos="0 0 0.41" name="pedestal0">
+			<geom name="pedestalgeom0" size="0.1 0.1 0.01" pos="0 0 0" type="box" mass="2000" material="pedestal_mat"></geom>
+			<site pos="0 0 0" size="0.075 0.075 0.002" type="box" name="robotmountsite0" rgba="0.55 0.54 0.53 1" />
+		</body>
+
+		<body pos="0 0 0.2" name="table0">
+			<geom name="tablegeom0" size="1.0 1.0 0.2" pos="0 0 0" type="box" material="table_mat" density="2000" friction="1 1 1" solimp="0.998 0.998 0.001" solref="0.002 1"></geom>
+			<site name="centeroftable" pos="0 0 0" size="1.0 1.0 0.2" type="box" rgba="0.87 0.72 0.53 1.0" />
+		</body>
+
+		<body name="object" pos="0 0 0.42">
+			<joint name="object_joint0" type="free" limited="false" damping="1.0"></joint>
+			<geom size="0.02 0.02 0.02" type="box" name="object0" material="block_mat" density="500" condim="4" friction="1 1 1" solimp="0.998 0.998 0.001" solref="0.002 1"></geom>
+			<site name="object_site" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0 0 0" type="box"></site>
+		</body>
+
+		<light directional="true" ambient="0.1 0.1 0.1" diffuse="0 0 0" specular="0 0 0" castshadow="false" pos="1.65 0 10" dir="-0.57 -0.57 -0.57" name="light0"></light>
+        <light directional="true" ambient="0.1 0.1 0.1" diffuse="0 0 0" specular="0 0 0" castshadow="false" pos="0 -4 4" dir="0 1 -0.1" name="light1"></light>
+        <light directional="true" ambient="0.05 0.05 0.05" diffuse="0 0 0" specular="0 0 0" castshadow="false" pos="2.13 1.6 2.5" name="light2"></light>
+        <light pos="0 0 2" dir="0.2 0.2 -0.8" directional="true"  diffuse="0.3 0.3 0.3"  castshadow="false" name="light3"></light>
+
+		<camera fovy="50" name="camera_eyetohand" pos="1.2 0 1.6" euler="0 0.8 1.5708" />
+	</worldbody>
+
+    <equality>
+		<!-- left_finger_joint -->
+		<joint joint1="drive_joint" joint2="left_finger_joint" polycoef="0 1 0 0 0"></joint>
+		<!-- left_inner_knuckle_joint -->
+		<joint joint1="drive_joint" joint2="left_inner_knuckle_joint" polycoef="0 1 0 0 0"></joint>
+		<!-- right_outer_knuckle_joint -->
+		<joint joint1="drive_joint" joint2="right_outer_knuckle_joint" polycoef="0 1 0 0 0"></joint>
+		<!-- right_finger_joint -->
+		<joint joint1="drive_joint" joint2="right_finger_joint" polycoef="0 1 0 0 0"></joint>
+		<!-- right_inner_knuckle_joint -->
+		<joint joint1="drive_joint" joint2="right_inner_knuckle_joint" polycoef="0 1 0 0 0"></joint>
+
+		<connect body2="left_finger" body1="left_inner_knuckle" anchor="0.0 0.035465 0.042039" solimp="0.9 0.95 0.001 0.5 2" solref="0.0002 1.0"></connect>
+		<connect body2="right_finger" body1="right_inner_knuckle" anchor="0.0 -0.035465 0.042039" solimp="0.9 0.95 0.001 0.5 2" solref="0.0002 1.0"></connect>
+    </equality>
+
+    <actuator>
+		<motor name="gripper_motor" ctrllimited="true" ctrlrange="-5.0 5.0" joint="drive_joint" gear="100.0"/>
+    </actuator>
+</mujoco>
