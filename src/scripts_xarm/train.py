@@ -1,17 +1,88 @@
 from pathlib import Path
 import torch
 from torch.utils.tensorboard import SummaryWriter
+import gymnasium as gym
+import gym_xarm
+import numpy as np
+import time
 
 from lerobot.configs.types import FeatureType
 from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 from lerobot.datasets.utils import dataset_to_policy_features
 from lerobot.policies.factory import get_policy_class, make_policy_config, make_policy
+from lerobot.utils.io_utils import write_video
+
+
+def evaluate_policy(policy, num_episodes=10, seed_offset=10000):
+    """评估策略的成功率"""
+    device = torch.device("cuda")
+    
+    env = gym.make(
+        "gym_xarm/XarmLiftMoving-v0",
+        obs_type="pixels_agent_pos",
+        max_episode_steps=500,
+        render_mode="rgb_array",
+        moving_mode="static",
+    )
+    
+    camera_names = []
+    if isinstance(env.observation_space.spaces.get("pixels"), gym.spaces.Dict):
+        camera_names = list(env.observation_space.spaces["pixels"].spaces.keys())
+    
+    success_episodes = 0
+    
+    for episode in range(num_episodes):
+        policy.reset()
+        numpy_observation, info = env.reset(seed=episode+seed_offset)
+        
+        step = 0
+        done = False
+        
+        while not done:
+            state = torch.from_numpy(numpy_observation["agent_pos"])
+            state = state.to(torch.float32)
+            state = state.to(device, non_blocking=True)
+            state = state.unsqueeze(0)
+            
+            processed_images = {}
+            for camera_name in camera_names:
+                image = torch.from_numpy(numpy_observation["pixels"][camera_name])
+                image = image.to(torch.float32) / 255
+                image = image.permute(2, 0, 1)  # HWC -> CHW
+                image = image.to(device, non_blocking=True)
+                image = image.unsqueeze(0)
+                processed_images[f"observation.images.{camera_name}"] = image
+            
+            observation = {"observation.state": state}
+            observation.update(processed_images)
+            
+            with torch.inference_mode():
+                action = policy.select_action(observation)
+            
+            numpy_action = action.squeeze(0).to("cpu").numpy()
+            numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
+            
+            done = terminated | truncated
+            step += 1
+        
+        if terminated:
+            success_episodes += 1
+    
+    success_rate = success_episodes / num_episodes * 100
+    env.close()
+    return success_rate
 
 
 def train():
-    name = "xarm_lift_moving_keyboard"
+    name = "xarm_lift_moving_keyboard_static_3camera_fixedstart"
     output_directory = Path(f"outputs/train/{name}")
     output_directory.mkdir(parents=True, exist_ok=True)
+    
+    # 创建专门的目录来保存最后的模型和最佳模型
+    last_model_dir = output_directory / "last"
+    best_model_dir = output_directory / "best"
+    last_model_dir.mkdir(parents=True, exist_ok=True)
+    best_model_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize TensorBoard writer
     writer = SummaryWriter(output_directory / "logs")
@@ -19,10 +90,12 @@ def train():
     device = torch.device("cuda")
 
     # Number of offline training steps
-    training_steps = 30000
+    training_steps = 5000
     log_freq = 100
     save_freq = 1000  # Frequency for model checkpoints
+    eval_freq = 500   # Frequency for evaluation
     max_grad_norm = 1.0
+    eval_episodes = 50  # Number of episodes for each evaluation
 
     dataset_metadata = LeRobotDatasetMetadata(
         repo_id=f"oooer/{name}",
@@ -55,8 +128,8 @@ def train():
 
     train_dataloader = torch.utils.data.DataLoader(
         full_dataset,
-        num_workers=4,
-        batch_size=16,
+        num_workers=8,
+        batch_size=128,
         shuffle=True,
         pin_memory=device.type != "cpu",
         drop_last=True,
@@ -71,6 +144,8 @@ def train():
     # Run training loop.
     step = 0
     done = False
+    best_success_rate = 0.0
+    
     while not done:
         for batch in train_dataloader:
             batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
@@ -98,20 +173,67 @@ def train():
                 for loss_name, loss_value in loss_dict.items():
                     writer.add_scalar(f"Loss/{loss_name}", loss_value, step)
             
-            # Save checkpoint periodically
-            if step % save_freq == 0 and step > 0:
+            # Save checkpoint and evaluate periodically
+            if step % eval_freq == 0 and step > 0:
+                # Switch to evaluation mode
+                policy.eval()
+                
+                # Save checkpoint
                 checkpoint_dir = output_directory / f"checkpoint_{step}"
                 policy.save_pretrained(checkpoint_dir)
                 print(f"Saved checkpoint at step {step}")
+                
+                policy.save_pretrained(last_model_dir)
+                print(f"Saved as last model at step {step}")
+                
+                # Evaluate the model
+                print(f"Evaluating model at step {step}...")
+                success_rate = evaluate_policy(policy, num_episodes=eval_episodes)
+                print(f"Step {step} - Success Rate: {success_rate:.2f}%")
+                
+                # Log success rate to TensorBoard
+                writer.add_scalar("Evaluation/SuccessRate", success_rate, step)
+                
+                # Save best model based on success rate
+                if success_rate > best_success_rate:
+                    best_success_rate = success_rate
+                    policy.save_pretrained(best_model_dir)
+                    print(f"New best model saved with success rate: {best_success_rate:.2f}%")
+                    writer.add_scalar("Evaluation/BestSuccessRate", best_success_rate, step)
+                
+                # Switch back to training mode
+                policy.train()
+            
+            # Regular checkpoint saving
+            if step % save_freq == 0 and step > 0 and step % eval_freq != 0:
+                checkpoint_dir = output_directory / f"checkpoint_{step}"
+                policy.save_pretrained(checkpoint_dir)
+                print(f"Saved checkpoint at step {step}")
+                
+                policy.save_pretrained(last_model_dir)
+                print(f"Saved as last model at step {step}")
             
             step += 1
             if step >= training_steps:
                 done = True
                 break
 
-    # Save final model
-    policy.save_pretrained(output_directory)
-    print(f"Training completed. Final model saved to {output_directory}")
+    # Final evaluation
+    policy.eval()
+    final_success_rate = evaluate_policy(policy, num_episodes=eval_episodes)
+    print(f"Final Success Rate: {final_success_rate:.2f}%")
+    writer.add_scalar("Evaluation/FinalSuccessRate", final_success_rate, step)
+    
+    policy.save_pretrained(last_model_dir)
+    
+    if final_success_rate >= best_success_rate:
+        best_success_rate = final_success_rate
+        policy.save_pretrained(best_model_dir)
+        print(f"Final model saved as new best model with success rate: {best_success_rate:.2f}%")
+        writer.add_scalar("Evaluation/BestSuccessRate", best_success_rate, step)
+    
+    print(f"Training completed. Final model saved to {last_model_dir}")
+    print(f"Best model saved to {best_model_dir} with success rate: {best_success_rate:.2f}%")
     
     # Close TensorBoard writer
     writer.close()

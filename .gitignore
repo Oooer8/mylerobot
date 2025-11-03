@@ -173,5 +173,3 @@ outputs/
 
 # Dev folders
 .cache/*
-
-datasets/*

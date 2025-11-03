@@ -169,30 +169,39 @@ class LiftMoving(Base):
         z_min, z_max = self.gripper_limit_to_cots['z_range']
 
         # Gripper
-        gripper_pos = self.center_of_table_surf + \
-            np.array([
-                self.np_random.uniform(x_min, x_max),
-                self.np_random.uniform(y_min, y_max),
-                self.np_random.uniform(z_min+0.1, z_max)
-            ])
+        # gripper_pos = np.copy(self.center_of_table_surf) + \
+        #     np.array([
+        #         self.np_random.uniform(x_min, x_max),
+        #         self.np_random.uniform(y_min, y_max),
+        #         self.np_random.uniform(z_min+0.4, z_max)
+        #     ])
+        gripper_pos = np.copy(self.center_of_table_surf) + \
+            np.array([0.2, 0, 0.5])
         super()._set_gripper(gripper_pos, self.gripper_rotation)
+        for _ in range(10):
+            self._mujoco.mj_step(self.model, self.data, nstep=1)
 
         # Object
-        obj_min, obj_max = max(x_min, y_min), min(x_max, y_max)
-        object_half_size = self.model.geom_size[self.model.geom("object0").id]
+        object_half_size = np.copy(self.model.geom_size[self.model.geom("object0").id])
         object_pos = np.copy(self.center_of_table_surf)
-        object_pos[0] += self.np_random.uniform(obj_min, obj_max)
-        object_pos[1] += self.np_random.uniform(obj_min, obj_max)
+        object_pos[0] += self.np_random.uniform(x_min, x_max)
+        object_pos[1] += self.np_random.uniform(y_min, y_max)
         object_pos[2] += object_half_size[2]+5*1e-3
+        # print("sample object_pos", object_pos)
+        # print("obj half size", self.model.geom_size[self.model.geom("object0").id])
+        # print("self.center_of_table_surf", self.center_of_table_surf)
 
         object_qpos = self._utils.get_joint_qpos(self.model, self.data, "object_joint0")
         object_qpos[:3] = object_pos
+        object_qpos[3:7] = np.array([1, 0, 0, 0])
         self._utils.set_joint_qpos(self.model, self.data, "object_joint0", object_qpos)
         self._init_z = object_pos[2]
+        object_qvel = np.zeros(6)  # [vx, vy, vz, wx, wy, wz]
+        self._utils.set_joint_qvel(self.model, self.data, "object_joint0", object_qvel)
 
         # Goal
         return object_pos + np.array([0, 0, self._z_threshold])
-
+    
     def reset(
         self,
         seed=None,
@@ -208,5 +217,5 @@ class LiftMoving(Base):
     def step(self, action):
         self._update_object_velocity_every_step()
         self._action = action.copy()
-        print("obj", self.obj)
+        # print("obj", self.obj)
         return super().step(action)

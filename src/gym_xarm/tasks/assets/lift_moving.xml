@@ -38,7 +38,8 @@
         <light directional="true" ambient="0.05 0.05 0.05" diffuse="0 0 0" specular="0 0 0" castshadow="false" pos="2.13 1.6 2.5" name="light2"></light>
         <light pos="0 0 2" dir="0.2 0.2 -0.8" directional="true"  diffuse="0.3 0.3 0.3"  castshadow="false" name="light3"></light>
 
-		<camera fovy="50" name="camera_eyetohand" pos="1.2 0 1.6" euler="0 0.8 1.5708" />
+		<camera fovy="50" name="camera_top" pos="1.2 0 1.6" euler="0 0.8 1.5708" />
+		<camera fovy="50" name="camera_side" pos="0.321 -1.477 1.560" xyaxes="1.000 -0.015 0.000 0.010 0.671 0.742"/>
 	</worldbody>
 
     <equality>

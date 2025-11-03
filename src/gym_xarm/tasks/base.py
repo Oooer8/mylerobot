@@ -97,8 +97,9 @@ class Base(gym.Env):
 
         self._env_setup(initial_qpos=self.initial_qpos)
         self.initial_time = self.data.time
-        self.initial_qpos = np.copy(self.data.qpos)
-        self.initial_qvel = np.copy(self.data.qvel)
+        self.initial_qpos = self.data.qpos.copy()
+        self.initial_qvel = self.data.qvel.copy()
+
 
     def _env_setup(self, initial_qpos):
         """Initial configuration of the environment.
@@ -255,11 +256,45 @@ class Base(gym.Env):
         simulation), this method should indicate such a failure by returning False.
         In such a case, this method will be called again to attempt a the reset again.
         """
+        # max_attempts = 10
+        # for attempt in range(max_attempts):
+        #     self.data.time = self.initial_time
+        #     self.data.qpos[:] = self.initial_qpos.copy()
+        #     self.data.qvel[:] = self.initial_qvel.copy()
+        #     self._sample_goal()
+            
+        #     self._mujoco.mj_forward(self.model, self.data)
+        #     gripper_pos = self._utils.get_site_xpos(self.model, self.data, "grasp")
+        #     print(f"机械臂末端位置: {gripper_pos}")
+        #     # 检查是否有严重穿透
+        #     has_penetration = False
+        #     if self.data.ncon > 0:
+        #         for i in range(self.data.ncon):
+        #             contact = self.data.contact[i]
+        #             # 如果穿透深度 < -0.001（负值表示穿透）
+        #             if contact.dist < -0.001:
+        #                 has_penetration = True
+        #                 break
+            
+        #     if not has_penetration:
+        #         # 没有穿透，可以安全地进行物理模拟
+        #         self._mujoco.mj_step(self.model, self.data, nstep=self.n_substeps)
+        #         return True
+        #     else:
+        #         print(f"⚠️ 尝试 {attempt + 1}: 检测到穿透，重新采样...")
+        #         continue
+        
+        # # 如果所有尝试都失败，使用方案2（不进行物理模拟）
+        # print("⚠️ 无法找到无穿透的初始配置，跳过物理模拟")
+        # return True
         self.data.time = self.initial_time
-        self.data.qpos[:] = np.copy(self.initial_qpos)
-        self.data.qvel[:] = np.copy(self.initial_qvel)
+        self.data.qpos[:] = self.initial_qpos.copy()
+        self.data.qvel[:] = self.initial_qvel.copy()
         self._sample_goal()
+        # print("init obj postion", self._utils.get_joint_qpos(self.model, self.data, "object_joint0"))
+        self._mujoco.mj_forward(self.model, self.data)
         self._mujoco.mj_step(self.model, self.data, nstep=self.n_substeps)
+        # print("exec obj postion", self._utils.get_joint_qpos(self.model, self.data, "object_joint0"))
         return True
 
     def get_obs(self):

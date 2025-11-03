@@ -13,7 +13,7 @@ device = "cuda"
 videos_dir = Path("./videos")
 videos_dir.mkdir(parents=True, exist_ok=True)
 
-name = "xarm_lift_moving_keyboard"
+name = "xarm_lift_moving_keyboard_static_3camera_fixedstart"
 # Provide the [hugging face repo id](https://huggingface.co/lerobot/diffusion_pusht):
 # pretrained_policy_path = "lerobot/diffusion_pusht"
 pretrained_policy_path = Path(f"outputs/train/{name}")
@@ -27,7 +27,7 @@ env = gym.make(
     obs_type="pixels_agent_pos",
     max_episode_steps=500,
     render_mode="rgb_array",
-    moving_mode="linear",
+    moving_mode="static",
 )
 
 print("Observation Space:", env.observation_space)
@@ -37,14 +37,14 @@ if isinstance(env.observation_space.spaces.get("pixels"), gym.spaces.Dict):
     camera_names = list(env.observation_space.spaces["pixels"].spaces.keys())
     print(f"检测到相机: {camera_names}")
 
-output_directory = Path(f"outputs/videos/{name}")
+output_directory = Path(f"outputs/videos/{name}/last")
 output_directory.mkdir(parents=True, exist_ok=True)
 
 sucess_episodes = 0
 max_episodes = 100
 for episode in range(max_episodes):
     policy.reset()
-    numpy_observation, info = env.reset(seed=episode)
+    numpy_observation, info = env.reset(seed=episode+10000)
 
     step = 0
     done = False
@@ -77,7 +77,7 @@ for episode in range(max_episodes):
         numpy_action = action.squeeze(0).to("cpu").numpy()
 
         numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
-        print(f"{step=} {reward=} {terminated=}")
+        # print(f"{step=} {reward=} {terminated=}")
 
         frame = env.render()
         for camera_name in camera_names:

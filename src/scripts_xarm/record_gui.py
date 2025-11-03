@@ -26,9 +26,10 @@ logging.basicConfig(level=logging.INFO)
 
 class Config:
     def __init__(self):
-        self.name = "xarm_lift_moving_keyboard"
+        self.name = "xarm_lift_moving_keyboard_static_3camera_fixedstart"
         self.repo_id = f"oooer/{self.name}"
         self.dataset_root = f"./outputs/datasets/{self.name}"
+        self.moving_mode = "static"
         self.num_episodes = 500
         self.fps = 25
         self.push_to_hub = False
@@ -49,7 +50,9 @@ class RecorderGUI:
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # Configure window size
-        self.master.geometry("1280x900")
+        window_width = 1280
+        window_height = 550
+        self.master.geometry(f"{window_width}x{window_height}")
         
         # Create custom styles
         self.create_styles()
@@ -106,23 +109,39 @@ class RecorderGUI:
             if camera_name.startswith("camera"):
                 camera_names.append(camera_name)
         
-        # Create camera labels
-        self.camera_labels = {}
+        # 定义统一的相机显示尺寸
+        # 根据图片比例 640:480 = 4:3 计算合适的 Canvas 尺寸
+        CANVAS_WIDTH = 400
+        CANVAS_HEIGHT = 300  # 400 * (480/640) = 300，保持 4:3 比例
+        
+        # Create camera canvases
+        self.camera_canvases = {}
+        self.camera_images = {}
         cols = min(3, len(camera_names))
+        
         for i, name in enumerate(camera_names):
             frame = ttk.LabelFrame(self.camera_frame, text=name, style="Large.TLabelframe")
             row, col = i // cols, i % cols
             frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
             
-            label = ttk.Label(frame)
-            label.pack(fill=tk.BOTH, expand=True)
-            self.camera_labels[name] = label
+            # 使用 Canvas，设置为图片的精确比例
+            canvas = tk.Canvas(
+                frame, 
+                width=CANVAS_WIDTH, 
+                height=CANVAS_HEIGHT,
+                bg='gray20',
+                highlightthickness=0
+            )
+            canvas.pack(fill=tk.BOTH, expand=False, padx=5, pady=5)  # expand=False 防止拉伸
+            
+            self.camera_canvases[name] = canvas
+            self.camera_images[name] = None
         
         # Configure grid weights
         for i in range((len(camera_names) + cols - 1) // cols):
-            self.camera_frame.grid_rowconfigure(i, weight=1)
+            self.camera_frame.grid_rowconfigure(i, weight=0)  # weight=0 防止垂直拉伸
         for i in range(cols):
-            self.camera_frame.grid_columnconfigure(i, weight=1)
+            self.camera_frame.grid_columnconfigure(i, weight=1, uniform="col")
         
         # Control buttons frame
         control_frame = ttk.Frame(main_frame)
@@ -130,18 +149,18 @@ class RecorderGUI:
         
         # Episode control buttons
         self.save_button = ttk.Button(control_frame, text="Save Episode", 
-                                      command=lambda: self.set_decision("save"),
-                                      state=tk.DISABLED, style="Large.TButton")
+                                    command=lambda: self.set_decision("save"),
+                                    state=tk.DISABLED, style="Large.TButton")
         self.save_button.pack(side=tk.LEFT, padx=15)
         
         self.rerecord_button = ttk.Button(control_frame, text="Re-record", 
-                                         command=lambda: self.set_decision("rerecord"),
-                                         state=tk.DISABLED, style="Large.TButton")
+                                        command=lambda: self.set_decision("rerecord"),
+                                        state=tk.DISABLED, style="Large.TButton")
         self.rerecord_button.pack(side=tk.LEFT, padx=15)
         
         self.stop_button = ttk.Button(control_frame, text="Stop Recording", 
-                                     command=lambda: self.set_decision("stop"),
-                                     state=tk.DISABLED, style="Large.TButton")
+                                    command=lambda: self.set_decision("stop"),
+                                    state=tk.DISABLED, style="Large.TButton")
         self.stop_button.pack(side=tk.LEFT, padx=15)
         
         # Separator
@@ -149,8 +168,8 @@ class RecorderGUI:
         
         # Exit button
         self.exit_button = ttk.Button(control_frame, text="Exit Program", 
-                                     command=self.on_closing,
-                                     style="Large.TButton")
+                                    command=self.on_closing,
+                                    style="Large.TButton")
         self.exit_button.pack(side=tk.RIGHT, padx=15)
         
         # Status frame
@@ -170,66 +189,66 @@ class RecorderGUI:
         # Status label
         self.status_label = ttk.Label(status_frame, text="Ready", style="Large.TLabel")
         self.status_label.pack(side=tk.RIGHT, padx=15)
-        
-        
+
     def update_camera_views(self):
-        """Update camera views"""
+        """更新相机视图"""
         if not self.running:
             return
             
         try:
-            # Get rendered images
             renders = self.env.sim_env.render()
             
-            # Update each camera view
+            # 统一目标尺寸
+            TARGET_WIDTH = 640
+            TARGET_HEIGHT = 480
+
             for camera_name, image in renders.items():
-                if camera_name in self.camera_labels:
-                    # Get label dimensions
-                    label_width = self.camera_labels[camera_name].winfo_width()
-                    label_height = self.camera_labels[camera_name].winfo_height()
+                if camera_name in self.camera_canvases:
+                    canvas = self.camera_canvases[camera_name]
                     
-                    # Ensure valid dimensions
-                    if label_width <= 10 or label_height <= 10:
-                        # Use default dimensions
-                        label_width = 320
-                        label_height = 240
-                    
-                    # Maintain original image aspect ratio
-                    img_height, img_width = image.shape[:2]
-                    aspect_ratio = img_width / img_height
-                    
-                    # Calculate new dimensions preserving aspect ratio
-                    if label_width / label_height > aspect_ratio:
-                        # Base on height
-                        new_height = label_height
-                        new_width = int(new_height * aspect_ratio)
-                    else:
-                        # Base on width
-                        new_width = label_width
-                        new_height = int(new_width / aspect_ratio)
-                    
-                    # Resize image
-                    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                    # 强制缩放到统一尺寸
+                    resized_image = cv2.resize(
+                        image, 
+                        (TARGET_WIDTH, TARGET_HEIGHT), 
+                        interpolation=cv2.INTER_AREA
+                    )
 
                     if "eyeinhand" in camera_name:
                         resized_image = cv2.flip(cv2.flip(resized_image, 0), 1)
                     
-                    # Convert to PIL image
-                    pil_image = Image.fromarray(resized_image)
+                    # 获取 Canvas 尺寸
+                    canvas_width = canvas.winfo_width()
+                    canvas_height = canvas.winfo_height()
                     
-                    # Convert to PhotoImage
+                    if canvas_width <= 1:
+                        canvas_width = 400
+                    if canvas_height <= 1:
+                        canvas_height = 300
+                    
+                    # 直接缩放到 Canvas 尺寸（因为比例已经匹配）
+                    display_image = cv2.resize(
+                        resized_image, 
+                        (canvas_width, canvas_height), 
+                        interpolation=cv2.INTER_AREA
+                    )
+                    
+                    pil_image = Image.fromarray(display_image)
                     photo = ImageTk.PhotoImage(image=pil_image)
                     
-                    # Update label
-                    self.camera_labels[camera_name].configure(image=photo)
-                    self.camera_labels[camera_name].image = photo  # Keep reference
+                    # 清除 Canvas 并显示图像
+                    canvas.delete("all")
+                    canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+                    
+                    # 保存图像引用
+                    self.camera_images[camera_name] = photo
+                        
         except Exception as e:
             logging.error(f"Error updating camera views: {e}")
         
-        # Schedule next update (fix recursive error)
         if self.running:
-            self.master.after(40, self.update_camera_views)  # About 25 FPS
-    
+            self.master.after(40, self.update_camera_views)
+
+
     def set_decision(self, decision):
         """Set episode decision"""
         self.episode_decision = decision
@@ -405,11 +424,11 @@ def record_dataset_with_gui(env, cfg):
         # Recording loop
         episode_index = dataset.num_episodes
         stop_recording = False
-        env.reset()
+        # env.reset()
         
         def record_episode():
             nonlocal episode_index, stop_recording
-            
+
             # Check if recording should continue
             if episode_index >= cfg.num_episodes or stop_recording or not gui.is_recording or not gui.running:
                 # Schedule next check
@@ -435,21 +454,15 @@ def record_dataset_with_gui(env, cfg):
                 # Get action
                 action_dict = env.teleop.get_action()
                 
-                # Wait for non-zero input
-                wait_start = time.time()
                 while all(action_dict[key] == default for key, default in 
                        [("delta_x", 0), ("delta_y", 0), ("delta_z", 0), ("gripper", 1)]):
                     action_dict = env.teleop.get_action()
-                    # Update GUI
                     root.update()
-                    # Check if exited
                     if not gui.running:
                         break
-                    # Avoid high CPU usage
-                    time.sleep(0.01)
-                    # Timeout check (continue after 5 seconds of no input)
-                    if time.time() - wait_start > 5:
-                        break
+                    # time.sleep(0.01)
+                    # if time.time() - wait_start > 5:
+                    #     break
                 
                 if not gui.running:
                     break
@@ -552,7 +565,7 @@ def record_dataset_with_gui(env, cfg):
                 root.after(100, record_episode)
         
         # Start recording loop
-        root.after(1000, record_episode)
+        root.after(100, record_episode)
         
         # Start main loop
         root.mainloop()
@@ -598,12 +611,15 @@ def main():
     env = None
     
     try:
-        # Create environment
-        env = KeySimEnv(use_gripper=True, display_cameras=False)
-        env.reset()
-
         # Configuration
         cfg = Config()
+        
+        # Create environment
+        env = KeySimEnv(use_gripper=True, 
+                        display_cameras=False,
+                        moving_mode=cfg.moving_mode,
+                        )
+        # env.reset()
         
         # Display welcome message
         print("\n==== Robot Dataset Recording Tool ====")
