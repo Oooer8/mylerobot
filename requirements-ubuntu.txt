@@ -188,8 +188,6 @@ gym-hil==0.1.10
     # via lerobot
 gym-pusht==0.1.5
     # via lerobot
-gym-xarm==0.1.1
-    # via lerobot
 gymnasium==0.29.1
     # via
     #   gym-aloha

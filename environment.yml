@@ -135,7 +135,6 @@ dependencies:
       - gym-aloha==0.1.1
       - gym-hil==0.1.11
       - gym-pusht==0.1.5
-      - gym-xarm==0.1.1
       - gymnasium==0.29.1
       - gymnasium-robotics==1.2.4
       - hf-transfer==0.1.9

@@ -128,8 +128,8 @@ def train():
 
     train_dataloader = torch.utils.data.DataLoader(
         full_dataset,
-        num_workers=8,
-        batch_size=128,
+        num_workers=16,
+        batch_size=256,
         shuffle=True,
         pin_memory=device.type != "cpu",
         drop_last=True,

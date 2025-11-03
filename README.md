@@ -14,13 +14,12 @@ conda activate lerobot
 
 - then, install `lerobot` by `pip`
 ```bash
-cd lerobot
+cd mylerobot
 pip install -e ".[all]"
 ```
 
-- run `test/sim/6_xarm_sys/6_env.py` to gather data using keyboard
+- run `src/scripts_xarm/record_gui.py` to gather data using keyboard
 
-- run `test/sim/6_xarm_sys/6_train_xarm.py` to train policy
+- run `src/scripts_xarm/train.py` to train policy
 
-- run `test/sim/6_xarm_sys/6_eval_xarm.py` to eval
- policy
+- run `src/scripts_xarm/eval.py` to eval policy
